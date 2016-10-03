@@ -1,0 +1,371 @@
+---
+title: "ggplot_bio"
+output: html_document
+---
+
+## R Markdown
+
+```{r}
+#Prevent warning and messages from displaying in the pdf of this document
+knitr::opts_chunk$set(message = FALSE, warning=FALSE)
+```
+
+
+```{r eval=FALSE}
+#eval=FALSE means this won't be run when I knit my final report of this markdown
+
+install.packages("readr")
+install.packages("dplyr")
+install.packages("ggplot2")
+install.packages("cowplot")
+
+```
+
+Load packages
+```{r}
+library(readr)
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(cowplot)
+
+```
+
+### Read in the data
+
+Data source:
+
+"Coordination of Growth Rate, Cell Cycle, Stress Response, and Metabolic Activity in Yeast"
+Brauer *et al*., 2008
+
+http://www.ncbi.nlm.nih.gov/pmc/articles/PMC2174172/
+
+"We studied 36 yeast chemostat cultures growing at six different growth rates under six different nutrient limitations: glucose, sulfate, phosphate, ammonium, leucine (in a nonreverting leu2 mutant), and uracil (in a nonreverting ura3 mutant)"
+
+```{r}
+#This sets a display option for tables that lets you see all the columns at once
+options(dplyr.width = Inf)
+
+raw_data <- read_delim("ggplot_dataset_brauer2008.txt", delim = "\t" )
+
+```
+
+### Changing to a tidy format
+
+Instead of one gene per row, we want one observation of that gene per row
+
+The same information about the sky in wide form and in tidy form: A Metaphor
+
+*Wide form data*
+
+ - The sky has colors and august it was blue but this other time at sunset it was red but in the winter it's grey
+
+*Tidy form data*
+
+ - The sky in August was blue
+ - The sky in December was grey 
+ - The sky at Sunset was red
+
+ie. 
+
+ - gene experiment_condition1 value1
+ - gene experiment_condition2 value2
+
+
+```{r}
+# Here I'm changing the data to tidy
+# Here's what the incoming dataframe looks like
+
+head(raw_data)
+
+# I'm using the gather function from dplyr to do this
+# The values starts in column #5 and go to the end.
+# I want all of these values to go in a column called "expression"
+# I want the old column headers to go in a column called "condition"
+tidy_data <- raw_data %>% gather(key = condition, value = expression, 5:ncol(raw_data))
+
+#Equivalent expression
+#tidy_data <- gather(data = df_data, key = condition, value = expression, 5:ncol(raw_data))
+
+head(tidy_data)
+
+# As a rule, each cell should only every hold one value/attribute
+
+# Some columns contain multiple different values ex. SFB2::ER to Golgi transport::molecular function unknown::YNL049C::1082129
+# We will split this up into columns
+
+#I'm using the separate function to take the column NAME, and split in on the separator ":", giving each columns new names
+yeast_tmp <- tidy_data %>% separate(col = NAME, into = c("gene", "GO_bio", "GO_mol", "alt_name", "position"), sep="::" )
+
+head(yeast_tmp)
+
+#The experimental condition column has nutrient and rate in the same column. 
+#Split these up as well
+
+yeast <- yeast_tmp %>% separate(condition, c("nutrient", "rate"), sep=1)
+head(yeast)
+
+#I want the rate column to be numeric, not a string
+yeast$rate <- as.numeric(yeast$rate)
+head(yeast)
+
+#Here, I'm replacing the single letter nutreint code with the full word
+#The grammar of this sentence is:
+#In every position where yeast$nutrient equals "G", replace the position's entry with "Glucose"
+yeast$nutrient[yeast$nutrient == "G"] <- "Glucose"
+yeast$nutrient[yeast$nutrient == "L"] <- "Leucine"
+yeast$nutrient[yeast$nutrient == "N"] <- "Ammonium"
+yeast$nutrient[yeast$nutrient == "P"] <- "Phosphate"
+yeast$nutrient[yeast$nutrient == "S"] <- "Sulfate"
+yeast$nutrient[yeast$nutrient == "U"] <- "Uracil"
+
+
+yeast <- yeast %>% filter(gene != "")
+
+```
+
+### Demo of some ggplot geoms
+
+A geom is a type of plot, like scatter, violin, bar, density, etc. 
+
+List of the current ggplot geoms:
+
+http://docs.ggplot2.org/current/
+
+
+```{r}
+
+#I'm taking a random sample of rows from this dataset to demo plots
+#If plots take a long time to render, subsampling can initially helpful
+
+#Sample 20,000 rows from the yeast dataframe
+miniyeast = sample_n(yeast, 10000)
+
+
+# Each ggplot is like a recipe where you add on things you want
+# Start by initializing the ggplot with what data you want to use in the plot
+# the 'aes' function is where you assign what columns to use for each plot feature
+ggplot(data=miniyeast, aes(x=rate, y=expression, color=nutrient)) +
+   geom_point() 
+
+# Jitter spreads out points that have the same x coordinate
+ggplot(data=miniyeast, aes(x=rate, y=expression, color=nutrient)) +
+   geom_jitter() 
+
+# Here, I don't want all the points for each condition on to of each other
+# I'm adding on 'facet_wrap' by the variable 'nutrient' to get one
+# panel for each nutrient
+
+ggplot(data=miniyeast, aes(x=rate, y=expression, color=nutrient)) + 
+   geom_jitter() +  
+   facet_wrap(~nutrient)  
+
+# 
+ggplot(data=miniyeast, aes(x=rate, y=expression, color=nutrient)) +
+   geom_boxplot() +
+   facet_wrap(~nutrient)
+
+ggplot(data=miniyeast, aes(x=rate, y=expression, group=rate, color=nutrient)) +
+   geom_boxplot() +
+   facet_wrap(~nutrient)
+
+ggplot(data=miniyeast, aes(x=rate, y=expression, group=rate, color=nutrient)) +
+   geom_violin() +
+   facet_wrap(~nutrient)
+
+ggplot(data=miniyeast, aes(expression, color=nutrient)) +
+   geom_density() +
+   facet_wrap(~nutrient)
+
+
+#Take a look at all the the data together
+#Takes longer to plot, but isn't unreasonable
+ggplot(data=yeast, aes(x=rate, y= expression, group=gene, color=nutrient)) +
+   geom_line() +
+   theme(legend.position="none") +  #We don't want a giant legend with each gene name
+   facet_wrap(~nutrient)
+
+
+```
+
+#### Doing an analysis and visualizing the results
+
+ - I saw that there are tracks which have positive and negative slopes in all the nutrients
+ 
+ - I decided to look for genes which are up in some conditions and down in others using the dplyr functions from last week
+ 
+ - I take the pearson correlations of rate vs. expression for each gene:nutrient pair 
+ 
+ - I then take the genes which have high variance between their pearson correlations for the different nutrients
+```{r}
+
+yeast %>%
+   group_by(gene, nutrient) %>% 
+   dplyr::summarise(Pearson = cor(rate,expression)) %>% #make a new column called "Pearson" with the correlation btw rate and expression
+   group_by(gene) %>%                                   #Regroup by gene
+   dplyr::summarize(variance = var(Pearson)) %>%        #Take the variance of each genes correlations in the different nutrients
+   filter(variance > 0.75) -> variable_gene_list        #Save genes with high variance
+
+print(variable_gene_list)
+
+# Pull the data from the full dataset for the set of genes with high variance
+variable_data <- yeast %>% filter(gene %in% variable_gene_list$gene)
+
+ggplot(data=variable_data  , aes(x=rate, y=expression, group=nutrient, color=nutrient)) +
+    geom_line() + 
+    facet_wrap(~gene)
+
+# I noticed that there is a set of genes which are down in glucose/leucine and up in the other conditions
+# Let's pull just those out to make a figure
+selected_genes <- yeast %>% filter(gene %in%  c("ARO3", "DIC1", "ECM40", "TMT1", "TRP3", "VHT1"))
+
+ggplot(data=selected_genes , aes(x=rate, y=expression, group=nutrient, color=nutrient)) +
+    geom_line() + 
+    facet_wrap(~gene)
+
+```
+
+
+###Make it look nice
+
+Getting the data accurately displayed is just the first step of plotting
+
+The default plot always needs to be cleaned up for publication/presentation
+
+```{r}
+
+#custom palette
+palette <- c("#0072B2","#E69F00","#009E24","#FF0000", "#979797","#5530AA")
+
+#loading cowplot increases text size and removes the default grey background
+#It is also really useful for more advanced plotting later on
+
+#Here, I'm adding and silencing features I want fir the final plot
+#I find plot features by googling something to the tune of:
+#      change line thickness geom_line ggplot
+#      ggplot use custom color palette
+
+pairs_plt <- ggplot(data=selected_genes , aes(x=rate, y=expression, group=nutrient, color=nutrient)) +
+     geom_line(size=1.5, alpha=0.9) +                                 # Thicker lines, and slightly transparent
+     facet_wrap(~gene) +                                              # Each gene gets a plot
+     theme(strip.background=element_blank()) +                        # I don't want the grey box around the gene IDs
+     theme(axis.text.x=element_text(angle=45, vjust =1, hjust = 1)) + # I want the x axis labels at at 45 degree angle
+     ylab("Expression") +                                             # New y label
+     xlab("Growth rate") +                                            # New x label
+     scale_color_manual(values=palette)                               # Use custom colors
+
+pairs_plt
+
+```
+
+### An aside about colors and plotting
+
+This plot uses a palette of colors I prefer over the default
+
+Default ggplot pastels are *not* colorblind accessible
+
+ - Go for bold, saturated colors, avoid pastels and anything dull/washed-out
+ - Use thick lines, particularly in powerpoint presentations
+ - Try to use redundant encoding for conditions (like shapes, dashed vs. solid etc.) 
+ - Avoid non-intuitive problematic color pairings like:
+ 
+         teal/white
+         
+         lightpink/grey
+         
+         red/black
+         
+         darkblue/purple
+         
+         dull green/dull orange
+         
+ - Do not use thin red and black lines or small red/black dots to represent different data conditions
+ - Make heatmaps blue/yellow, NOT red/green
+
+### Another plot
+#### And a dire warning about using bar charts
+
+```{r}
+# Picking genes that have are really high pearson correlations between rate and expression in at least one conditions
+
+yeast %>% 
+  group_by(gene, nutrient) %>% 
+  dplyr::summarise(Pearson = cor(as.numeric(rate),expression)) %>% 
+  filter (Pearson < -0.99) %>% 
+  tail(50) -> negcor_genes
+
+print(negcor_genes)
+#Selecting the genes I found with high position correlation from the full dataset
+negcor <- yeast %>% 
+     filter(gene %in% negcor_genes$gene) 
+
+negplt <- ggplot(data=negcor , aes(x=rate, y=expression)) +
+     geom_violin() +
+     geom_jitter(alpha=0.3)+
+     theme(axis.text.x=element_text(angle=45, vjust =1, hjust = 1)) +
+     scale_color_manual(values=palette) 
+negplt
+
+# Aes can be assigned to individual plots
+negplt <- ggplot(data=negcor , aes(x=rate, y=expression)) +
+     geom_violin(aes(group=rate)) +
+     geom_jitter(alpha=0.3)+
+     theme(axis.text.x=element_text(angle=45, vjust =1, hjust = 1)) +
+     scale_color_manual(values=palette) 
+
+negplt
+
+#Boxplot version
+negplt_box <- ggplot(data=negcor , aes(x=rate, y=expression, group=rate)) +
+     geom_boxplot(alpha=0.3)+
+     theme(axis.text.x=element_text(angle=45, vjust =1, hjust = 1)) +
+     scale_color_manual(values=palette) 
+
+negplt_box 
+
+```
+
+### Plotting the exact same data as above as a bar plot
+There are definitely times when bar plots are appropriate
+
+And then there's most other times
+
+Bar plots hide the underlying distribution of observations in data
+
+ - Many papers represent data as bar plot + standard error of the mean (SEM)
+ - Standard error is almost never the appropriate statistic, but people use it because it is small and makes plots look more impressive
+ - Standard error of the means tells almost nothing about the underlying distribution of the data
+ - Choosing a plot format because it hides something troubling in the data => unethical
+ - If a violin, jitter, or box plot can be used, it's almost 100% the preferable way to present the data
+ - Once you start to look for bar plots +/- SEM in papers, you find them everywhere
+
+```{r}
+
+# Don't make plots like this
+# Don't use standard error of the mean to hide variation
+negplt_mean<- ggplot(data=negcor , aes(x=rate, y=expression)) +
+     geom_bar(stat="summary", fun.y="mean") +
+     stat_summary(fun.data = mean_se, geom = "errorbar") +
+     theme(axis.text.x=element_text(angle=45, vjust =1, hjust = 1)) +
+     scale_color_manual(values=palette) +
+     annotate ("text", x = 0.2, y=0.8, label="NO", color="red", size=15)
+
+negplt_mean
+
+# This is not an accurate representation of the data compared to the previous two charts
+
+```
+
+### Assembling and saving a figure
+```{r}
+
+final_figure <- plot_grid(pairs_plt, negplt, labels = c("A", "B"), ncol = 2, rel_widths = c(1,0.6))
+
+final_figure
+
+ggsave(plot = final_figure, file = "Figure1.pdf", device= "pdf", width=7, height=5, units="in")
+
+```
+
+
+
